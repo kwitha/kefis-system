@@ -1,0 +1,21 @@
+<?php
+// ═══════════════════════════════════════════════════════════
+// Purchase.php
+// ═══════════════════════════════════════════════════════════
+namespace App\Models;
+ 
+use Illuminate\Database\Eloquent\Model;
+ 
+class Purchase extends Model
+{
+    protected $fillable = [
+        'branch_id', 'product_id', 'product_company_id', 'user_id',
+        'quantity', 'unit_price', 'total_amount',
+        'supplier', 'purchase_date', 'reference',
+    ];
+ 
+    public function branch()      { return $this->belongsTo(Branch::class); }
+    public function product()     { return $this->belongsTo(Product::class); }
+    public function productCompany() { return $this->belongsTo(ProductCompany::class); }
+    public function user()        { return $this->belongsTo(User::class); }
+}
