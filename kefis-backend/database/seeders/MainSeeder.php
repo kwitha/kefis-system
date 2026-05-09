@@ -344,32 +344,41 @@ class MainSeeder extends Seeder
         // 6. STOCK BALANCES — per branch
         // Pull quantities from product_companies for StockBalance seeding
         // =====================
-        $allProductCompanies = ProductCompany::with('product')->get();
+       // =====================
+// 6. STOCK BALANCES — per branch per product_company
+// =====================
 
-        // Build a map of product_id => stock (use max stock across companies for that product)
-        $stockMap = [];
-        foreach ($allProductCompanies as $pc) {
-            $pid = $pc->product_id;
-            if (!isset($stockMap[$pid]) || $pc->stock > $stockMap[$pid]) {
-                $stockMap[$pid] = $pc->stock;
-            }
-        }
+// First, delete all existing flat stock balance rows
+StockBalance::truncate();
 
-        foreach ($stockMap as $productId => $stock) {
-            $nairobiQty = $stock;
-            $mombasaQty = max((int) round($stock * 0.80), 5);
+$allProductCompanies = ProductCompany::with('product')->get();
 
-            StockBalance::updateOrCreate(
-                ['branch_id' => $branch1->id, 'product_id' => $productId],
-                ['quantity'  => $nairobiQty]
-            );
+foreach ($allProductCompanies as $pc) {
+    // Get the base stock from the product definition
+    $baseStock = $pc->stock ?? 0;
 
-            StockBalance::updateOrCreate(
-                ['branch_id' => $branch2->id, 'product_id' => $productId],
-                ['quantity'  => $mombasaQty]
-            );
-        }
+    // Nairobi gets full stock, Mombasa gets 80%
+    $nairobiQty = $baseStock;
+    $mombasaQty = max(round($baseStock * 0.80), 5);
 
+    StockBalance::updateOrCreate(
+        [
+            'branch_id'          => $branch1->id,
+            'product_id'         => $pc->product_id,
+            'product_company_id' => $pc->id,
+        ],
+        ['quantity' => $nairobiQty]
+    );
+
+    StockBalance::updateOrCreate(
+        [
+            'branch_id'          => $branch2->id,
+            'product_id'         => $pc->product_id,
+            'product_company_id' => $pc->id,
+        ],
+        ['quantity' => $mombasaQty]
+    );
+}
         $this->command->info('✅ Branches, Users, Companies, Products and Stock seeded successfully!');
         $this->command->info('');
         $this->command->info('Login credentials:');

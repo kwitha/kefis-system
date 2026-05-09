@@ -49,6 +49,7 @@ public function index(Request $request)
                     : 0;
 
                 return [
+                    'id'            => $company->pivot->id,
                     'company_id'    => $company->id,
                     'name'          => $company->name,
                     'buying_price'  => $company->pivot->buying_price,

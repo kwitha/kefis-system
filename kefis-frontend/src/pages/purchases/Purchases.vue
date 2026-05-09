@@ -85,7 +85,7 @@
                       :key="c.id"
                       :value="c.id"
                     >
-                      {{ c.name }} — KES {{ Number(c.price_per_unit).toLocaleString() }}
+                      {{ c.name }} — KES {{ Number(c.buying_price).toLocaleString() }}
                     </option>
                   </select>
                 </div>
@@ -298,7 +298,7 @@ const groupedProducts = computed(() => {
 const getActivePrice = (p: any): number => {
   if (p.companies && p.companies.length > 0) {
     const company = selectedCompany.value[p.id]
-    return company ? Number(company.price_per_unit) : Number(p.companies[0].price_per_unit)
+    return company ? Number(company.buying_price) : Number(p.companies[0].buying_price)
   }
   return Number(p.buying_price)
 }
@@ -311,7 +311,7 @@ const onCompanyChange = (product: any, companyId: number) => {
   const item = getCartItem(product.id)
   if (item) {
     item.company    = company
-    item.unit_price = String(company ? company.price_per_unit : product.buying_price)
+    item.unit_price = String(company ? company.buying_price : product.buying_price)
   }
 }
 
@@ -335,7 +335,7 @@ const increment = (p: any) => {
     cart.value.push({
       product:    p,
       quantity:   1,
-      unit_price: String(company ? company.price_per_unit : p.buying_price),
+      unit_price: String(company ? company.buying_price : p.buying_price),
       company,
     })
   }

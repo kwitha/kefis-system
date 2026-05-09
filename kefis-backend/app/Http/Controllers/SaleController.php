@@ -55,21 +55,34 @@ class SaleController extends Controller
 
         $product = Product::findOrFail($request->product_id);
 
-        // Grocery must have company
-        if ($product->isGrocery() && !$request->product_company_id) {
-            return response()->json([
-                'message' => 'A company must be selected for Grocery products',
-            ], 422);
-        }
+        // ── Resolve product_company_id ────────────────────────────────
+        // Grocery products: must be sent explicitly from the frontend.
+        // Non-grocery products: auto-resolve to their single ProductCompany row.
+        $productCompanyId = $request->product_company_id;
 
-        // Company must belong to this product
-        if ($request->product_company_id) {
-            $company = ProductCompany::find($request->product_company_id);
-            if (!$company || $company->product_id !== $product->id) {
+        if (!$productCompanyId) {
+            if ($product->isGrocery()) {
                 return response()->json([
-                    'message' => 'Selected company does not belong to this product',
+                    'message' => 'A company must be selected for Grocery products',
                 ], 422);
             }
+
+            // Auto-resolve for non-grocery (single General Supplier row)
+            $pc = ProductCompany::where('product_id', $product->id)->first();
+            if (!$pc) {
+                return response()->json([
+                    'message' => "No supplier found for product '{$product->name}'. Please contact the manager.",
+                ], 422);
+            }
+            $productCompanyId = $pc->id;
+        }
+
+        // ── Validate company belongs to this product ──────────────────
+        $productCompany = ProductCompany::find($productCompanyId);
+        if (!$productCompany || $productCompany->product_id !== $product->id) {
+            return response()->json([
+                'message' => 'Selected company does not belong to this product.',
+            ], 422);
         }
 
         DB::beginTransaction();
@@ -78,13 +91,12 @@ class SaleController extends Controller
             // ── 1. Check stock for this branch + product + company ────
             $stock = StockBalance::where('branch_id', $request->branch_id)
                 ->where('product_id', $request->product_id)
-                ->where('product_company_id', $request->product_company_id)
+                ->where('product_company_id', $productCompanyId)
                 ->first();
 
             if (!$stock || $stock->quantity < $request->quantity) {
-                $companyName = $request->product_company_id
-                    ? (ProductCompany::find($request->product_company_id)?->name ?? 'selected company')
-                    : $product->name;
+                $companyName = $productCompany->company->name
+                    ?? $product->name;
 
                 return response()->json([
                     'message'   => "Insufficient stock for {$companyName}",
@@ -93,13 +105,13 @@ class SaleController extends Controller
             }
 
             // ── 2. Block if at or below minimum stock ─────────────────
-            $afterSale = $stock->quantity - $request->quantity;
+            $minimumStock = $productCompany->minimum_stock ?? $product->minimum_stock ?? 0;
 
-            if ($stock->quantity <= $product->minimum_stock) {
+            if ($stock->quantity <= $minimumStock) {
                 return response()->json([
-                    'message'       => "Cannot complete sale. Stock for '{$product->name}' is at or below the minimum threshold of {$product->minimum_stock} {$product->unit}.",
+                    'message'       => "Cannot complete sale. Stock for '{$product->name}' is at or below the minimum threshold of {$minimumStock} {$product->unit}.",
                     'current_stock' => $stock->quantity,
-                    'minimum_stock' => $product->minimum_stock,
+                    'minimum_stock' => $minimumStock,
                 ], 422);
             }
 
@@ -109,7 +121,7 @@ class SaleController extends Controller
             $sale = Sale::create([
                 'branch_id'          => $request->branch_id,
                 'product_id'         => $request->product_id,
-                'product_company_id' => $request->product_company_id,
+                'product_company_id' => $productCompanyId,
                 'user_id'            => auth()->id(),
                 'quantity'           => $request->quantity,
                 'unit_price'         => $request->unit_price,
@@ -126,7 +138,7 @@ class SaleController extends Controller
             DB::commit();
 
             // ── 5. Low stock alert (outside transaction) ──────────────
-            if ($stock->quantity <= $product->minimum_stock) {
+            if ($stock->quantity <= $minimumStock) {
                 $this->sendLowStockAlert($product, $stock);
             }
 
@@ -139,7 +151,14 @@ class SaleController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to record sale', 'error' => $e->getMessage()], 500);
+            \Log::error('SALE_STORE_ERROR', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'message' => 'Failed to record sale',
+                'error'   => $e->getMessage(),
+            ], 500);
         }
     }
 
@@ -154,9 +173,18 @@ class SaleController extends Controller
         DB::beginTransaction();
 
         try {
+            // Resolve product_company_id — may be null for old sales recorded
+            // before per-company stock tracking was introduced
+            $productCompanyId = $sale->product_company_id;
+
+            if (!$productCompanyId) {
+                $pc = ProductCompany::where('product_id', $sale->product_id)->first();
+                $productCompanyId = $pc?->id;
+            }
+
             $stock = StockBalance::where('branch_id', $sale->branch_id)
                 ->where('product_id', $sale->product_id)
-                ->where('product_company_id', $sale->product_company_id)
+                ->where('product_company_id', $productCompanyId)
                 ->first();
 
             if ($stock) {
@@ -170,7 +198,14 @@ class SaleController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to delete sale', 'error' => $e->getMessage()], 500);
+            \Log::error('SALE_DESTROY_ERROR', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'message' => 'Failed to delete sale',
+                'error'   => $e->getMessage(),
+            ], 500);
         }
     }
 

@@ -14,7 +14,7 @@ class Product extends Model
     ];
 
     protected $casts = [
-        'unit' => 'integer',
+        'unit' => 'string',
         'is_active'     => 'boolean',
         
     ];
@@ -27,7 +27,7 @@ class Product extends Model
     public function companies()
     {
         return $this->belongsToMany(Company::class, 'product_companies')
-            ->withPivot( 'buying_price',
+            ->withPivot( 'id','buying_price',
             'selling_price',
             'stock',
             'minimum_stock',
@@ -35,10 +35,7 @@ class Product extends Model
             ->withTimestamps();
     }
  
-    public function isGrocery():bool
-    {
-        return $this->category === 'Groceries';
-    }
+   
     public function activeCompanies()
     {
         return $this->hasMany(ProductCompany::class)->where('is_active', true);
@@ -104,5 +101,9 @@ class Product extends Model
         if ($this->isOutOfStockAtBranch($branchId)) return 'out_of_stock';
         if ($this->isLowStockAtBranch($branchId))   return 'low';
         return 'ok';
+    }
+     public function isGrocery():bool
+    {
+        return $this->category === 'Groceries';
     }
 }
